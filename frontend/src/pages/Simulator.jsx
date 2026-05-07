@@ -303,7 +303,7 @@ export default function Simulator() {
           {result ? (
             <div className="space-y-5">
               {/* KPIs */}
-              <div className="grid grid-cols-3 gap-4 stagger-children">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 stagger-children">
                 <KPICard
                   label="Baseline Forecast"
                   value={`${(result.baseline_forecast / 1e6).toFixed(2)}M`}
@@ -314,16 +314,23 @@ export default function Simulator() {
                 <KPICard
                   label="Scenario Forecast"
                   value={`${(result.scenario_forecast / 1e6).toFixed(2)}M`}
-                  sub={`at ${multiplier}× growth`}
+                  sub="projected demand"
                   color="var(--color-model2)"
                   delay="0.10s"
+                />
+                <KPICard
+                  label="Demand Uplift"
+                  value={`+${((multiplier - 1) * 100).toFixed(0)}%`}
+                  sub="market pressure"
+                  color="var(--color-high)"
+                  delay="0.15s"
                 />
                 <KPICard
                   label={isGapIncrease ? "Gap Increase" : "Gap Reduction"}
                   value={isGapIncrease ? `+${displayGapStr}%` : `${displayGapStr}%`}
                   sub={isGapIncrease ? "deficit worsened" : `${resolvedCount} states improved`}
                   color={isGapIncrease ? "var(--color-urgent)" : "var(--color-good)"}
-                  delay="0.15s"
+                  delay="0.20s"
                 />
               </div>
 

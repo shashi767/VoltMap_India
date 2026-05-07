@@ -115,15 +115,23 @@ def run_scenario(growth_multiplier: float,
     scenario = base_fc * growth_multiplier
 
     # ── Distribute stations ───────────────────────────────────────────────
-    n_focus        = max(len(focus_states), 1)
-    n_other        = max(len(gap_df) - n_focus, 1)
-    focus_stations = int(budget * 0.60) // n_focus
-    other_stations = int(budget * 0.40) // n_other
-
     gap_sim = gap_df.copy()
-    gap_sim["new_stations"] = gap_sim[STATE_COL].apply(
-        lambda s: focus_stations if s in focus_states else other_stations
-    )
+    
+    if focus_states:
+        n_focus = len(focus_states)
+        n_other = max(len(gap_sim) - n_focus, 1)
+        
+        focus_share = int(budget * 0.60) // n_focus
+        other_share = int(budget * 0.40) // n_other
+        
+        gap_sim["new_stations"] = gap_sim[STATE_COL].apply(
+            lambda s: focus_share if s in focus_states else other_share
+        )
+    else:
+        # If no focus states selected, distribute budget equally across all states
+        n_total = len(gap_sim)
+        equal_share = int(budget) // n_total
+        gap_sim["new_stations"] = equal_share
 
     pop_m               = gap_sim["total_population"] / 1e6
     gap_sim["new_spm"]  = (

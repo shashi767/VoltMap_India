@@ -93,6 +93,7 @@ CMAP_RDGN = "RdYlGn"    # red-yellow-green (coverage quality)
 print("Theme loaded — white background, research-paper style.")
 
 
+
 # --- Cell 2 ---
 print("\nPHASE 1 - Loading data")
 
@@ -100,69 +101,104 @@ print("\nPHASE 1 - Loading data")
 stations = pd.read_csv(f"{BASE_DATA_PATH}/ev-charging-stations-india.csv")
 stations.columns = (stations.columns.str.strip().str.lower().str.replace(" ", "_"))
 stations = stations.rename(columns={"lattitude": "lat", "longitude": "lon"})
-stations["state"] = stations["state"].str.strip().str.title()
 stations["city"]  = stations["city"].str.strip().str.title()
 stations = stations.dropna(subset=["lat", "lon"]) # Drops rows where latitude or longitude is missing
 
-# Fix spelling + merge duplicates
-state_mapping = {
-    "Tamilnadu": "Tamil Nadu",
-    "Taminadu": "Tamil Nadu",
-    "Telengana": "Telangana",
-    "Maharashra": "Maharashtra",
-    "Chattisgarh": "Chhattisgarh",
-    "Andra Pradesh": "Andhra Pradesh",
-    "Andhrapradesh": "Andhra Pradesh",
-    "Westbengal": "West Bengal",
-    "Uttrakhand": "Uttarakhand",
-    "Uttarkhand": "Uttarakhand",
-    "Harayana": "Haryana",
-    "Karala": "Kerala"
+# ── FIX: unified normalization — maps every variant → census 2011 canonical name ──
+# Previously: state_mapping + city_to_state were split, incomplete, and only applied
+# to stations. Delhi/Odisha/J&K/Puducherry/Andaman all failed to match census names,
+# causing those states to show station_count = 0 in gap_df.
+
+# Fix city → state (BUG 9 fix: added Chikhali, Jajpur, Limbdi, Rajahmundry)
+CITY_TO_STATE = {
+    "Hyderabad":    "Telangana",
+    "Ernakulam":    "Kerala",
+    "Kochi":        "Kerala",
+    "Hisar":        "Haryana",
+    "Bhubhaneswar": "Orissa",       # ← BUG 2 fix: census 2011 uses "Orissa" not "Odisha"
+    "Chikhali":     "Maharashtra",  # ← BUG 9 fix: was unmapped
+    "Jajpur":       "Orissa",       # ← BUG 9 fix: was unmapped
+    "Limbdi":       "Gujarat",      # ← BUG 9 fix: was unmapped
+    "Rajahmundry":  "Andhra Pradesh", # ← BUG 9 fix: was unmapped
 }
 
-# Merge region names
-stations['state'] = stations['state'].replace({
-    "Delhi Ncr": "Delhi",
-    "Jammu": "Jammu & Kashmir",
-    "Jammu And Kashmir": "Jammu & Kashmir"
-})
+# Fix spelling + merge duplicates → census 2011 canonical names
+CANONICAL = {
+    # ── BUG 1 fix: Delhi variants → census name "Nct Of Delhi" ──
+    # Old code only mapped "Delhi Ncr" → "Delhi" which still didn't match census
+    "Delhi":             "Nct Of Delhi",
+    "Delhi Ncr":         "Nct Of Delhi",
+    "New Delhi":         "Nct Of Delhi",
 
-# Fix city → state
-city_to_state = {
-    "Hyderabad": "Telangana",
-    "Ernakulam": "Kerala",
-    "Kochi": "Kerala",
-    "Hisar": "Haryana",
-    "Bhubhaneswar": "Odisha"
+    # Spelling fixes (unchanged from original)
+    "Tamilnadu":         "Tamil Nadu",
+    "Taminadu":          "Tamil Nadu",
+    "Telengana":         "Telangana",
+    "Maharashra":        "Maharashtra",
+    "Chattisgarh":       "Chhattisgarh",
+    "Andra Pradesh":     "Andhra Pradesh",
+    "Andhrapradesh":     "Andhra Pradesh",
+    "Westbengal":        "West Bengal",
+    "Uttrakhand":        "Uttarakhand",
+    "Uttarkhand":        "Uttarakhand",
+    "Harayana":          "Haryana",
+    "Karala":            "Kerala",
+
+    # ── BUG 2 fix: census 2011 uses old name "Orissa" ──
+    "Odisha":            "Orissa",
+
+    # ── BUG 4 fix: & vs And — census uses "Jammu And Kashmir" ──
+    "Jammu & Kashmir":   "Jammu And Kashmir",
+    "Jammu":             "Jammu And Kashmir",
+    "Jammu And Kashmir": "Jammu And Kashmir",  # already correct, kept for safety
+
+    # ── BUG 5 fix: two spellings → one census name ──
+    "Puducherry":        "Pondicherry",
+
+    # ── BUG 6 fix: short form / ops variant → full census name ──
+    "Andaman":                 "Andaman And Nicobar Islands",
+    "Andaman & Nicobar":       "Andaman And Nicobar Islands",  # ← ops uses this short form
 }
 
-# Remove weird characters
-stations['state'] = stations['state'].str.replace(r'[^a-zA-Z &]', '', regex=True)
+# ── Single reusable function — applied identically to stations, ops, makers ──
+def normalize_state(series):
+    return (series
+            .str.strip()
+            .str.title()
+            .str.replace(r'[^a-zA-Z &]', '', regex=True)  # Remove weird characters (BUG 8 fix)
+            .str.strip()
+            .replace(CITY_TO_STATE)
+            .replace(CANONICAL))
 
+stations["state"] = normalize_state(stations["state"])
 
-stations['state'] = stations['state'].replace(city_to_state)
-stations['state'] = stations['state'].replace(state_mapping)
 print(f"  Charging Stations : {len(stations):,} rows | "
       f"{stations['state'].nunique()} states")
 print(stations['state'].value_counts())
 print(stations)
+
+
 
 # --- Cell 3 ---
 # Official public charging station counts
 ops = pd.read_csv(f"{BASE_DATA_PATH}/OperationalPC.csv", encoding="utf-8-sig")
 ops.columns = (ops.columns.str.strip().str.lower().str.replace(" ", "_"))
 ops = ops.rename(columns={"no._of_operational_pcs": "official_stations"})
-ops["state"] = ops["state"].str.strip().str.title()
+ops["state"] = normalize_state(ops["state"])  # ← BUG 7 fix: was .str.strip().str.title() only
 print(f"  Operational PCS   : {len(ops):,} rows")
 print(ops)
+
+
 
 # --- Cell 4 ---
 # EV manufacturer locations
 makers = pd.read_csv(f"{BASE_DATA_PATH}/EV_Maker_by_Place.csv", encoding="utf-8-sig")
 makers.columns = (makers.columns.str.strip().str.lower().str.replace(" ", "_"))
-makers["state"] = makers["state"].str.strip().str.title()
+makers["state"] = normalize_state(makers["state"])  # ← BUG 11 fix: was .str.strip().str.title() only
 print(f"  EV Makers         : {len(makers):,} rows | "
       f"{makers['state'].nunique()} states")
+
+
 
 # --- Cell 5 ---
 # EV registrations by category 2001-2024
@@ -178,6 +214,7 @@ num_cols = ev_cat.columns.drop(["date", "year"])
 ev_cat[num_cols] = (ev_cat[num_cols].apply(pd.to_numeric, errors="coerce").fillna(0))
 print(f"  EV Category Trend : {len(ev_cat):,} rows | "
       f"{ev_cat['year'].min()}-{ev_cat['year'].max()}")
+
 
 # --- Cell 6 ---
 # EV sales by maker and category 2015-2024
@@ -195,6 +232,7 @@ for c in year_cols:
 print(f"  EV Sales by Maker : {len(sales):,} rows | "
       f"years: {year_cols[0]}-{year_cols[-1]}")
 
+
 # --- Cell 7 ---
 # India district census 2011
 census = pd.read_csv(f"{BASE_DATA_PATH}/india-districts-census-2011.csv")
@@ -205,6 +243,7 @@ print(f"  Census Districts  : {len(census):,} rows | "
       f"{census['State name'].nunique()} states")
 
 print("  All datasets loaded.\n")
+
 
 # --- Cell 9 ---
 print("PHASE 2 - Infrastructure EDA")
@@ -236,6 +275,7 @@ fig.tight_layout()
 plt.show()
 
 
+
 # --- Cell 10 ---
 # Chart 02 – Official count vs mapped stations
 
@@ -265,6 +305,7 @@ ax.legend()
 ax.grid(axis="y")
 fig.tight_layout()
 plt.show()
+
 
 
 # --- Cell 11 ---
@@ -304,6 +345,7 @@ fig.suptitle("EV Charging Infrastructure: Type Distribution & Top Cities",
              fontsize=13, fontweight="bold", y=1.02)
 fig.tight_layout()
 plt.show()
+
 
 
 # --- Cell 13 ---
@@ -348,6 +390,7 @@ fig.tight_layout()
 plt.show()
 
 
+
 # --- Cell 15 ---
 print("PHASE 4 - Demand EDA (Census)")
 
@@ -376,6 +419,27 @@ state_census = census.groupby("state").agg(
     income_above_545k=("income_above_545k", "sum"),
 ).reset_index()
 
+# ── BUG 3 fix: Telangana was formed in 2014 — it does not exist in census 2011 ──
+# Without this row, all 81 Telangana stations are silently dropped from gap_df
+# because the left-merge finds no census row to join to.
+# Estimate: Telangana ≈ 41% of undivided Andhra Pradesh (2011 population split).
+ap_row = state_census[state_census["state"] == "Andhra Pradesh"].iloc[0]
+telangana_row = pd.DataFrame([{
+    "state":               "Telangana",
+    "total_population":    int(ap_row["total_population"]    * 0.41),
+    "households_with_car": int(ap_row["households_with_car"] * 0.41),
+    "electric_lighting":   int(ap_row["electric_lighting"]   * 0.41),
+    "total_households":    int(ap_row["total_households"]    * 0.41),
+    "income_330k_545k":    int(ap_row["income_330k_545k"]    * 0.41),
+    "income_above_545k":   int(ap_row["income_above_545k"]   * 0.41),
+}])
+state_census = pd.concat([state_census, telangana_row], ignore_index=True)
+# Also adjust Andhra Pradesh down to the remaining 59%
+ap_idx = state_census[state_census["state"] == "Andhra Pradesh"].index[0]
+for _col in ["total_population","households_with_car","electric_lighting",
+             "total_households","income_330k_545k","income_above_545k"]:
+    state_census.loc[ap_idx, _col] = int(ap_row[_col] * 0.59)
+
 # Step 3: Derived metrics
 state_census["income_middle_high"] = (
     state_census["income_330k_545k"] +
@@ -399,12 +463,28 @@ state_stations = (
     .reset_index(name="station_count")
 )
 
+# #
+
+# #
+
 # Step 5: Merge demand and supply
 demand_supply = (
     state_census
     .merge(state_stations, on="state", how="left")
     .fillna({"station_count": 0})
 )
+
+# ── FIX: ev-charging-stations-india.csv is crowdsourced and incomplete ──
+# e.g. Delhi: 179 mapped vs 1886 official, Maharashtra: 265 vs 3079 official
+# Step 5.5: Replace station_count with official govt counts from ops wherever available
+ops_counts = ops[["state", "official_stations"]].copy()
+demand_supply = demand_supply.merge(ops_counts, on="state", how="left")
+demand_supply["station_count"] = demand_supply.apply(
+    lambda r: r["official_stations"]
+    if pd.notna(r["official_stations"]) and r["official_stations"] > 0
+    else r["station_count"], axis=1
+)
+demand_supply = demand_supply.drop(columns=["official_stations"])
 
 # Step 6: Final metric
 demand_supply["stations_per_million"] = (
@@ -415,6 +495,8 @@ demand_supply["stations_per_million"] = (
 # Step 7: Debug check
 print(demand_supply.head())
 print(demand_supply.sort_values("stations_per_million", ascending=False).head(10))
+
+
 
 # --- Cell 16 ---
 print("Chart 05 - Vehicle Category Breakdown")
@@ -451,6 +533,7 @@ fig.tight_layout()
 plt.show()
 
 
+
 # --- Cell 17 ---
 print("Chart 06 - Top EV Makers")
 
@@ -475,6 +558,7 @@ ax.set_xlabel("Total Units Sold")
 ax.grid(axis="x")
 fig.tight_layout()
 plt.show()
+
 
 
 # --- Cell 18 ---
@@ -505,6 +589,7 @@ fig.tight_layout()
 plt.show()
 
 
+
 # --- Cell 19 ---
 print("Chart 08 - Manufacturer Presence by State")
 
@@ -526,6 +611,7 @@ ax.set_ylabel("State")
 ax.grid(axis="x")
 fig.tight_layout()
 plt.show()
+
 
 
 # --- Cell 20 ---
@@ -558,6 +644,7 @@ fig.tight_layout()
 plt.show()
 
 
+
 # --- Cell 21 ---
 # Chart 10 – Stations per million population
 
@@ -587,6 +674,7 @@ ax.legend(handles=legend_patches)
 ax.grid(axis="x")
 fig.tight_layout()
 plt.show()
+
 
 
 # --- Cell 22 ---
@@ -628,6 +716,7 @@ fig.tight_layout()
 plt.show()
 
 
+
 # --- Cell 23 ---
 # Chart 12 – Correlation heatmap
 
@@ -662,6 +751,7 @@ fig.tight_layout()
 plt.show()
 
 
+
 # --- Cell 25 ---
 print("PHASE 5 - Gap Analysis")
 
@@ -694,6 +784,7 @@ gap_df["gap_score"] = gap_df["demand_score"] - gap_df["supply_score"]
 print(gap_df[["state", "demand_score", "supply_score", "gap_score"]]
       .sort_values("gap_score", ascending=False)
       .head(10))
+
 
 # --- Cell 26 ---
 print("Chart 13 - Demand vs Supply Quadrant")
@@ -778,6 +869,7 @@ fig.tight_layout()
 plt.savefig("chart13_demand_supply_quadrant.png", dpi=150, bbox_inches="tight")
 plt.show()
 
+
 # --- Cell 27 ---
 print("Chart 14 - Priority States for Deployment")
 
@@ -809,6 +901,7 @@ ax.legend(handles=[
 ax.grid(axis="x")
 fig.tight_layout()
 plt.show()
+
 
 
 # --- Cell 29 ---
@@ -876,6 +969,7 @@ cluster_df["color"] = cluster_df["cluster"].map(lambda x: cluster_labels[x][1])
 # Step 9: Debug check
 print(cluster_df[[STATE_COL, "cluster", "segment"]].head())
 
+
 # --- Cell 30 ---
 print("Chart 15 - K-Means Scatter")
 
@@ -922,6 +1016,7 @@ for cid, (label, _) in cluster_labels.items():
     states = cluster_df[cluster_df["cluster"] == cid][STATE_COL].tolist()
     print(f"  {label}: {', '.join(states)}")
 
+
 # --- Cell 32 ---
 print("\nPHASE 7 - Priority Scoring")
 
@@ -951,6 +1046,7 @@ top_showroom = gap_df.nlargest(10, "showroom_score")
 
 for i, (_, row) in enumerate(top_showroom.iterrows(), 1):
     print(f"{i:2}. {row[state_col]:<30} Score: {row['showroom_score']:.1f}")
+
 
 # --- Cell 34 ---
 print("\nPHASE 8 - Summary Dashboard")
@@ -1063,6 +1159,7 @@ for spine in ax4.spines.values():
 plt.show()
 
 
+
 # --- Cell 36 ---
 print("PHASE 5 — Feature Engineering")
 
@@ -1141,6 +1238,7 @@ feat_descriptions = {
 for k, v in feat_descriptions.items():
     print(f"    {k:<14} → {v}")
 
+
 # --- Cell 37 ---
 print("Chart A — Feature Importance Preview (correlation with target)")
 
@@ -1165,6 +1263,7 @@ plt.tight_layout()
 plt.savefig("chartA_feature_importance.png", dpi=150, bbox_inches="tight")
 plt.show()
 print("  → Top features are lag-based: the model learns from momentum.")
+
 
 # --- Cell 39 ---
 print("PHASE 6 — Chronological Data Split")
@@ -1199,6 +1298,7 @@ plt.savefig("chartB_train_test_split.png", dpi=150, bbox_inches="tight")
 plt.show()
 print("  → Chronological split preserves temporal order (no data leakage).")
 
+
 # --- Cell 41 ---
 print("PHASE 7 — Train Three Competing Models")
 
@@ -1229,6 +1329,7 @@ best_name = min(results, key=lambda k: results[k]["RMSE"])
 best_model = results[best_name]["model"]
 print(f"\n  ✓ Best model (lowest RMSE): {best_name}")
 
+
 # --- Cell 42 ---
 print("Chart C — Model Comparison")
 
@@ -1256,6 +1357,7 @@ plt.tight_layout()
 plt.savefig("chartC_model_comparison.png", dpi=150, bbox_inches="tight")
 plt.show()
 print("  → Gradient Boosting captures the growth momentum best.")
+
 
 # --- Cell 44 ---
 print("PHASE 8 — Evaluation Metrics & Residual Analysis")
@@ -1320,6 +1422,7 @@ fig.suptitle(f"Residual Analysis — {best_name}",
 plt.tight_layout()
 plt.savefig("chartD_residual_analysis.png", dpi=150, bbox_inches="tight")
 plt.show()
+
 
 # --- Cell 45 ---
 # Phase 9 — Polynomial Ridge Regression
@@ -1447,6 +1550,7 @@ print(f"  Ridge first prediction : {first_ridge_val:,.0f}")
 print(f"  Calibration applied    : +{calibration:,.0f}")
 print(f"  Calibrated Dec 2030    : {pred_ridge_future_calibrated[-1]:,.0f}")
 
+
 # --- Cell 46 ---
 print("PHASE 10 — Facebook Prophet")
 from prophet import Prophet
@@ -1565,6 +1669,7 @@ dec2030_prophet = forecast_full.loc[closest_idx, "yhat"]
 print(f"\n  Closest date found : {forecast_full.loc[closest_idx, 'ds'].date()}")
 print(f"  Forecast Dec 2030  : {dec2030_prophet:,.0f} registrations/month")
 
+
 # --- Cell 47 ---
 # Phase 11 — Final Comparison & Forecast
 print("PHASE 11 — Final Model Comparison & Forecast Summary")
@@ -1642,6 +1747,7 @@ if gap / max(pred_ridge_future_calibrated[-1], dec2030_prophet) < 0.20:
 else:
     print("  → Models diverge significantly — present as a range, not a point estimate")
 
+
 # --- Cell 49 ---
 print("PHASE 12 — Hyperparameter Tuning (Grid Search — Time-Series CV)")
 
@@ -1716,6 +1822,7 @@ print(f"\n  ✓ Tuning complete — GBR best params: {gs.best_params_}")
 print(f"  Note: Despite tuning, GBR MAPE={tuned_mape:.1f}% confirms regime-shift")
 print(f"  limitation. Prophet + Ridge used as primary forecast instead.")
 
+
 # --- Cell 51 ---
 print("PHASE 13 — National EV Demand Forecast: 2025–2030")
 
@@ -1782,6 +1889,7 @@ print(f"  Ridge Dec 2030/month     : {pred_ridge_future_calibrated[-1]:>12,.0f}"
 print(f"\n  Forecast range Dec 2030  : "
       f"{pred_ridge_future_calibrated[-1]:,.0f} – {dec2030_prophet:,.0f} /month")
 
+
 # --- Cell 52 ---
 # ── Chart J: Three-model monthly comparison ───────────────────────────────
 fig, ax = plt.subplots(figsize=(14, 5))
@@ -1844,6 +1952,7 @@ ax.legend(fontsize=9)
 plt.tight_layout()
 plt.savefig("chartJ_three_model_comparison.png", dpi=150, bbox_inches="tight")
 plt.show()
+
 
 # --- Cell 53 ---
 print("Chart K — Forecast Chart (Historical + Projection)")
@@ -1919,6 +2028,7 @@ plt.show()
 print(f"  → Prophet primary forecast range: "
       f"{pred_ridge_future_calibrated[-1]:,.0f} – {dec2030_prophet:,.0f} /month by Dec 2030")
 
+
 # --- Cell 55 ---
 print("PHASE 14 — Forward-Looking Gap Score (2030 Demand vs Current Supply)")
 
@@ -1988,6 +2098,7 @@ plt.suptitle("Infrastructure Gap: Today vs 2030 Demand Projection\n"
 plt.tight_layout()
 plt.savefig("chartL_gap_score_2030.png", dpi=150, bbox_inches="tight")   # ← renamed
 plt.show()
+
 
 
 
@@ -2158,6 +2269,7 @@ plt.show()
 
 print("\n  ✓ Re-run this cell with different SIMULATOR PARAMETERS to explore scenarios.")
 
+
 # --- Cell 59 ---
 print("PHASE 16 — Monitor & Maintenance Log")
 print("─" * 60)
@@ -2255,6 +2367,7 @@ plt.savefig("chartN_monitoring.png", dpi=150, bbox_inches="tight")     # ← ren
 plt.show()
 
 print("\n  ✓ Monitoring complete. Re-run annually with updated Vahan CSV.")
+
 
 # --- Cell 60 ---
 # Run this in your Jupyter notebook to save trained models
