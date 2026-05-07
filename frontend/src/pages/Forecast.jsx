@@ -154,7 +154,7 @@ export default function Forecast({ theme }) {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 stagger-children">
           {model !== "ridge" && lastPoint.prophet > 0 && (
             <KPICard
-              label="Prophet · 2050 Target"
+              label={`Prophet · ${endDate.split('-')[0]} Target`}
               value={`${((lastPoint.prophet || 0) / 1000).toFixed(0)}K`}
               sub="monthly registrations"
               color="var(--color-model1)"
@@ -163,7 +163,7 @@ export default function Forecast({ theme }) {
           )}
           {model !== "prophet" && lastPoint.ridge > 0 && (
             <KPICard
-              label="Ridge · 2050 Target"
+              label={`Ridge · ${endDate.split('-')[0]} Target`}
               value={`${((lastPoint.ridge || 0) / 1000).toFixed(0)}K`}
               sub="monthly registrations"
               color="var(--color-model2)"
